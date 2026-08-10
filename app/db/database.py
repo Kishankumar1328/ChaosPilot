@@ -13,7 +13,8 @@ async_session_maker = sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 async def create_mysql_database_if_not_exists():
     """
-    Connects to MySQL server using root credentials and creates the target database if it doesn't exist.
+    Connects to MySQL server using root credentials, creates the target database if missing,
+    and alters column types to LONGTEXT for full JSON payloads.
     """
     if "mysql" in settings.DATABASE_URL:
         try:
@@ -24,8 +25,18 @@ async def create_mysql_database_if_not_exists():
                 await conn.execute(text(f"CREATE DATABASE IF NOT EXISTS {settings.MYSQL_DB}"))
             await root_engine.dispose()
             logger.info(f"MySQL database '{settings.MYSQL_DB}' verified/created successfully.")
+
+            # Ensure columns use LONGTEXT for JSON payloads
+            async with engine.connect() as conn:
+                try:
+                    await conn.execute(text("ALTER TABLE runrecord MODIFY COLUMN state_json LONGTEXT"))
+                    await conn.execute(text("ALTER TABLE bugreportrecord MODIFY COLUMN report_json LONGTEXT"))
+                    await conn.commit()
+                except Exception:
+                    pass  # Table may not exist yet before metadata.create_all
+
         except Exception as e:
-            logger.warning(f"Could not auto-create MySQL database '{settings.MYSQL_DB}': {e}")
+            logger.warning(f"Could not auto-create/verify MySQL database '{settings.MYSQL_DB}': {e}")
 
 async def init_db():
     global engine, async_session_maker
@@ -33,6 +44,16 @@ async def init_db():
         await create_mysql_database_if_not_exists()
         async with engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
+
+        # Alter columns after creation if needed
+        if "mysql" in settings.DATABASE_URL:
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text("ALTER TABLE runrecord MODIFY COLUMN state_json LONGTEXT"))
+                    await conn.execute(text("ALTER TABLE bugreportrecord MODIFY COLUMN report_json LONGTEXT"))
+            except Exception as e:
+                logger.debug(f"Column alter note: {e}")
+
         logger.info("Database initialized successfully with MySQL.")
     except Exception as e:
         logger.warning(f"MySQL initialization error: {e}. Switching to SQLite fallback database.")
