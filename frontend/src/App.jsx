@@ -188,9 +188,9 @@ export default function App() {
               <div className="w-7 h-7 rounded-lg bg-[#0071E3] text-white flex items-center justify-center font-bold text-sm shadow-sm">
                 
               </div>
-              <span className="font-bold text-base text-[#1D1D1F] tracking-tight">ChaosPilot <span className="text-xs font-normal text-[#6E6E73]">Pro</span></span>
+              <span className="font-bold text-base text-[#1D1D1F] tracking-tight">ChaosPilot <span className="text-xs font-semibold text-[#0071E3]">Enterprise</span></span>
             </div>
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#0071E3]/10 text-[#0071E3]">V2.0</span>
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#0071E3]/10 text-[#0071E3]">V3.0</span>
           </div>
 
           <button
