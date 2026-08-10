@@ -20,7 +20,9 @@ import {
   Play,
   Sun,
   Moon,
-  X
+  X,
+  AlertCircle,
+  Ban
 } from 'lucide-react';
 
 export default function App() {
@@ -138,8 +140,15 @@ export default function App() {
     switch (status) {
       case 'COMPLETED':
         return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#34C759]/15 text-[#248A3D] border border-[#34C759]/30"><CheckCircle2 className="w-3.5 h-3.5 mr-1"/> Completed</span>;
+      case 'COMPLETED_WITH_BUGS':
+        return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#FF3B30]/15 text-[#D70015] border border-[#FF3B30]/30"><AlertTriangle className="w-3.5 h-3.5 mr-1"/> Completed With Bugs</span>;
+      case 'COMPLETED_WITH_BLOCKED_TESTS':
+        return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#FF9500]/15 text-[#C27000] border border-[#FF9500]/30"><Ban className="w-3.5 h-3.5 mr-1"/> Blocked Tests</span>;
+      case 'TARGET_UNAVAILABLE':
+        return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#8E8E93]/15 text-[#6E6E73] border border-[#8E8E93]/30"><AlertCircle className="w-3.5 h-3.5 mr-1"/> Target Unavailable</span>;
+      case 'EXECUTION_FAILED':
       case 'FAILED':
-        return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#FF3B30]/15 text-[#D70015] border border-[#FF3B30]/30"><AlertTriangle className="w-3.5 h-3.5 mr-1"/> Failed</span>;
+        return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#FF3B30]/15 text-[#D70015] border border-[#FF3B30]/30"><AlertTriangle className="w-3.5 h-3.5 mr-1"/> Execution Failed</span>;
       case 'DISCOVERING':
         return <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#0071E3]/15 text-[#0071E3] border border-[#0071E3]/30 animate-pulse"><Compass className="w-3.5 h-3.5 mr-1"/> Discovering</span>;
       case 'PLANNING':
@@ -367,7 +376,11 @@ export default function App() {
                   </div>
                   <div>
                     <div className="text-xl font-extrabold text-[#D70015]">{selectedRun.discovered_bugs?.length || 0}</div>
-                    <div className="text-[10px] text-[#6E6E73] uppercase font-bold">Bugs</div>
+                    <div className="text-[10px] text-[#6E6E73] uppercase font-bold">Confirmed Bugs</div>
+                  </div>
+                  <div>
+                    <div className="text-xl font-extrabold text-[#FF9500]">{selectedRun.execution_issues?.length || 0}</div>
+                    <div className="text-[10px] text-[#6E6E73] uppercase font-bold">Exec Issues</div>
                   </div>
                 </div>
               </div>
@@ -423,99 +436,135 @@ export default function App() {
               {/* Bugs & Auto-Fixes Tab View */}
               {activeTab === 'bugs' && (
                 <div className="space-y-6">
-                  {selectedRun.discovered_bugs?.length === 0 ? (
-                    <div className="bg-[#F5F5F7] border border-[#E5E5E7] rounded-2xl p-10 text-center text-[#6E6E73]">
-                      <CheckCircle2 className="w-12 h-12 text-[#34C759] mx-auto mb-3" />
-                      <h3 className="text-base font-bold text-[#1D1D1F]">No Vulnerabilities Detected</h3>
-                      <p className="text-xs text-[#424245] mt-1 font-semibold">Application executed test cases without throwing unhandled exceptions.</p>
-                    </div>
-                  ) : (
-                    selectedRun.discovered_bugs?.map((b) => (
-                      <div key={b.id} className="bg-[#F5F5F7] border border-[#E5E5E7] rounded-2xl p-6 space-y-5 shadow-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-mono font-bold text-[#D70015]">{b.id}</span>
-                          <span className="px-3 py-1 text-xs font-bold rounded-full bg-[#FF3B30]/15 text-[#D70015] border border-[#FF3B30]/30">
-                            {b.severity}
-                          </span>
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-extrabold text-[#1D1D1F]">{b.title}</h3>
-                          <p className="text-xs text-[#1D1D1F] mt-1 font-semibold leading-relaxed">{b.description}</p>
-                        </div>
-                        
-                        <div className="bg-[#FFFFFF] p-4 rounded-xl border border-[#E5E5E7] font-mono text-xs text-[#1D1D1F] flex items-center justify-between">
+                  {/* Section A: Execution Issues & Runner Timeouts (Separated from Application Bugs) */}
+                  {selectedRun.execution_issues?.length > 0 && (
+                    <div className="space-y-4">
+                      <h3 className="text-xs font-extrabold text-[#C27000] uppercase tracking-wider flex items-center space-x-2">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>Execution & Infrastructure Issues (Deduplicated)</span>
+                      </h3>
+                      {selectedRun.execution_issues.map((issue) => (
+                        <div key={issue.id} className="bg-[#FFFBEB] border border-[#FCD34D] rounded-2xl p-6 space-y-3 shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-mono font-bold text-[#C27000]">{issue.id}</span>
+                            <span className="px-3 py-1 text-xs font-bold rounded-full bg-[#FEF3C7] text-[#92400E] border border-[#FCD34D]">
+                              {issue.nav_status || 'EXECUTION_ISSUE'}
+                            </span>
+                          </div>
                           <div>
-                            <span className="text-[#6E6E73] block text-[10px] font-sans font-bold">Reproduction Script Path:</span>
-                            <code className="text-[#0071E3] font-bold">{b.reproduction_script_path}</code>
+                            <h4 className="text-base font-extrabold text-[#92400E]">{issue.title}</h4>
+                            <p className="text-xs text-[#78350F] mt-1 font-semibold leading-relaxed">{issue.reason}</p>
                           </div>
-                          <button 
-                            onClick={() => copyToClipboard(b.reproduction_script_path, b.id)}
-                            className="p-2 hover:bg-[#F5F5F7] rounded-lg text-[#6E6E73] hover:text-[#1D1D1F] transition"
-                            title="Copy Path"
-                          >
-                            {copiedId === b.id ? <Check className="w-4 h-4 text-[#34C759]" /> : <Copy className="w-4 h-4" />}
-                          </button>
+                          <div className="flex items-center justify-between text-xs text-[#92400E] pt-2 border-t border-[#FCD34D]/40 font-semibold">
+                            <span>Target: <strong className="font-mono">{issue.target_url}</strong></span>
+                            <span>Tests Blocked: <strong>{issue.blocked_tests_count}</strong></span>
+                          </div>
                         </div>
-
-                        {/* Root Cause & Fix Section */}
-                        {b.root_cause_analysis ? (
-                          <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#0071E3]/40 shadow-sm space-y-4">
-                            <h4 className="text-xs font-bold text-[#0071E3] uppercase tracking-wider flex items-center space-x-2">
-                              <Code className="w-4 h-4" />
-                              <span>Root Cause Diagnosis</span>
-                            </h4>
-                            <p className="text-xs text-[#1D1D1F] font-semibold leading-relaxed">{b.root_cause_analysis.probable_root_cause}</p>
-
-                            {b.root_cause_analysis.proposed_patches?.length > 0 && (
-                              <div className="space-y-1">
-                                <span className="text-xs font-bold text-[#1D1D1F] block">Proposed Code Patch:</span>
-                                <pre className="bg-[#000000] text-[#30D158] p-4 rounded-xl text-xs font-mono border border-[#333333] overflow-x-auto font-bold">
-                                  {b.root_cause_analysis.proposed_patches[0].diff || b.root_cause_analysis.proposed_patches[0].proposed_code}
-                                </pre>
-                              </div>
-                            )}
-
-                            {b.root_cause_analysis.status === 'VERIFIED' ? (
-                              <div className="p-3 bg-[#34C759]/15 border border-[#34C759]/40 rounded-xl text-xs text-[#248A3D] font-bold flex items-center space-x-2">
-                                <Check className="w-4 h-4" />
-                                <span>Code Fix Approved & Applied in Repository</span>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => handleApplyFix(b.id)}
-                                disabled={applyingFixes[b.id]}
-                                className="w-full bg-[#0071E3] hover:bg-[#0077ED] text-white font-bold py-3 rounded-xl text-xs transition flex items-center justify-center space-x-2 shadow-sm"
-                              >
-                                {applyingFixes[b.id] ? (
-                                  <RefreshCw className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <Check className="w-4 h-4" />
-                                    <span>Approve & Apply Code Fix (Human Approval Required)</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => handleAnalyzeBug(b.id)}
-                            disabled={analyzingBugs[b.id]}
-                            className="w-full bg-[#FFFFFF] hover:bg-[#F5F5F7] border border-[#E5E5E7] text-[#1D1D1F] font-bold py-3 rounded-xl text-xs transition flex items-center justify-center space-x-2 shadow-sm"
-                          >
-                            {analyzingBugs[b.id] ? (
-                              <RefreshCw className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <>
-                                <Wrench className="w-4 h-4 text-[#0071E3]" />
-                                <span>Inspect Source Code & Diagnose Root Cause</span>
-                              </>
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
+
+                  {/* Section B: Confirmed Application Bugs */}
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-extrabold text-[#D70015] uppercase tracking-wider flex items-center space-x-2">
+                      <Bug className="w-4 h-4" />
+                      <span>Confirmed Application Vulnerabilities & Crashes ({selectedRun.discovered_bugs?.length || 0})</span>
+                    </h3>
+
+                    {selectedRun.discovered_bugs?.length === 0 ? (
+                      <div className="bg-[#F5F5F7] border border-[#E5E5E7] rounded-2xl p-10 text-center text-[#6E6E73]">
+                        <CheckCircle2 className="w-12 h-12 text-[#34C759] mx-auto mb-3" />
+                        <h3 className="text-base font-bold text-[#1D1D1F]">No Application Defects Confirmed</h3>
+                        <p className="text-xs text-[#424245] mt-1 font-semibold">Application executed test cases without throwing unhandled exceptions or 500 errors.</p>
+                      </div>
+                    ) : (
+                      selectedRun.discovered_bugs?.map((b) => (
+                        <div key={b.id} className="bg-[#F5F5F7] border border-[#E5E5E7] rounded-2xl p-6 space-y-5 shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-mono font-bold text-[#D70015]">{b.id}</span>
+                            <span className="px-3 py-1 text-xs font-bold rounded-full bg-[#FF3B30]/15 text-[#D70015] border border-[#FF3B30]/30">
+                              {b.severity}
+                            </span>
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-extrabold text-[#1D1D1F]">{b.title}</h3>
+                            <p className="text-xs text-[#1D1D1F] mt-1 font-semibold leading-relaxed">{b.description}</p>
+                          </div>
+                          
+                          <div className="bg-[#FFFFFF] p-4 rounded-xl border border-[#E5E5E7] font-mono text-xs text-[#1D1D1F] flex items-center justify-between">
+                            <div>
+                              <span className="text-[#6E6E73] block text-[10px] font-sans font-bold">Reproduction Script Path:</span>
+                              <code className="text-[#0071E3] font-bold">{b.reproduction_script_path}</code>
+                            </div>
+                            <button 
+                              onClick={() => copyToClipboard(b.reproduction_script_path, b.id)}
+                              className="p-2 hover:bg-[#F5F5F7] rounded-lg text-[#6E6E73] hover:text-[#1D1D1F] transition"
+                              title="Copy Path"
+                            >
+                              {copiedId === b.id ? <Check className="w-4 h-4 text-[#34C759]" /> : <Copy className="w-4 h-4" />}
+                            </button>
+                          </div>
+
+                          {/* Root Cause & Fix Section */}
+                          {b.root_cause_analysis ? (
+                            <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#0071E3]/40 shadow-sm space-y-4">
+                              <h4 className="text-xs font-bold text-[#0071E3] uppercase tracking-wider flex items-center space-x-2">
+                                <Code className="w-4 h-4" />
+                                <span>Root Cause Diagnosis</span>
+                              </h4>
+                              <p className="text-xs text-[#1D1D1F] font-semibold leading-relaxed">{b.root_cause_analysis.probable_root_cause}</p>
+
+                              {b.root_cause_analysis.proposed_patches?.length > 0 && (
+                                <div className="space-y-1">
+                                  <span className="text-xs font-bold text-[#1D1D1F] block">Proposed Code Patch:</span>
+                                  <pre className="bg-[#000000] text-[#30D158] p-4 rounded-xl text-xs font-mono border border-[#333333] overflow-x-auto font-bold">
+                                    {b.root_cause_analysis.proposed_patches[0].diff || b.root_cause_analysis.proposed_patches[0].proposed_code}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {b.root_cause_analysis.status === 'VERIFIED' ? (
+                                <div className="p-3 bg-[#34C759]/15 border border-[#34C759]/40 rounded-xl text-xs text-[#248A3D] font-bold flex items-center space-x-2">
+                                  <Check className="w-4 h-4" />
+                                  <span>Code Fix Approved & Applied in Repository</span>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => handleApplyFix(b.id)}
+                                  disabled={applyingFixes[b.id]}
+                                  className="w-full bg-[#0071E3] hover:bg-[#0077ED] text-white font-bold py-3 rounded-xl text-xs transition flex items-center justify-center space-x-2 shadow-sm"
+                                >
+                                  {applyingFixes[b.id] ? (
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <Check className="w-4 h-4" />
+                                      <span>Approve & Apply Code Fix (Human Approval Required)</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleAnalyzeBug(b.id)}
+                              disabled={analyzingBugs[b.id]}
+                              className="w-full bg-[#FFFFFF] hover:bg-[#F5F5F7] border border-[#E5E5E7] text-[#1D1D1F] font-bold py-3 rounded-xl text-xs transition flex items-center justify-center space-x-2 shadow-sm"
+                            >
+                              {analyzingBugs[b.id] ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <Wrench className="w-4 h-4 text-[#0071E3]" />
+                                  <span>Inspect Source Code & Diagnose Root Cause</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
 

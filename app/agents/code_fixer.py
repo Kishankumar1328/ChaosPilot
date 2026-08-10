@@ -12,31 +12,34 @@ from app.tools.code_inspector import CodeInspector
 logger = logging.getLogger(__name__)
 
 ROOT_CAUSE_PROMPT = """You are ChaosPilot's Root-Cause & Code-Fix AI Engineer.
-Given a Bug Report and source code snippets, analyze the bug, determine the probable root cause,
+Given a verified Application Bug Report and source code snippets, analyze the bug, determine the probable root cause,
 propose a minimal code patch, and write a pytest regression test.
 
-Return strictly JSON matching:
-{
-  "probable_root_cause": "Detailed explanation of why the failure occurs...",
-  "affected_files": ["app/routes.py"],
-  "proposed_patches": [
-    {
-      "file_path": "app/routes.py",
-      "original_code": "def submit()...",
-      "proposed_code": "def submit()...",
-      "diff": "--- app/routes.py\n+++ app/routes.py\n@@ -10,3 +10,3 @@..."
-    }
-  ],
-  "regression_test_code": "def test_regression():\n    assert True\n"
-}
+CRITICAL RULES:
+- ONLY propose a code patch if the source code contains a proven application defect.
+- NEVER generate generic exception-handling suppression patches like `try: ... except Exception: pass` or `raise Exception() -> handle_exception()`.
+- Return strictly JSON matching the required schema.
 """
 
 async def analyze_root_cause_and_fix(bug: BugReport, repo_dir: str = ".") -> RootCauseAnalysis:
     """
     Inspects source code around bug report logs, generates probable root cause,
     proposed minimal patch, and pytest regression test.
+    Refuses to generate generic exception suppression patches for runner timeouts.
     """
     logger.info(f"Analyzing root cause for bug: {bug.id}")
+
+    # Reject analysis if bug is actually a Playwright navigation timeout
+    if "timeout" in bug.description.lower() and "http 500" not in bug.description.lower() and not bug.console_logs:
+        return RootCauseAnalysis(
+            bug_id=bug.id,
+            probable_root_cause="Execution issue caused by Playwright browser navigation timeout. No application code defect identified.",
+            affected_files=[],
+            proposed_patches=[],
+            regression_test_code="# Infrastructure navigation timeout - no application regression test required",
+            status=PatchStatus.PENDING_ANALYSIS
+        )
+
     inspector = CodeInspector(repo_dir)
     
     # 1. Locate relevant source files
@@ -54,49 +57,74 @@ async def analyze_root_cause_and_fix(bug: BugReport, repo_dir: str = ".") -> Roo
     if settings.GEMINI_API_KEY:
         try:
             llm = ChatGoogleGenerativeAI(
-                model=settings.GEMINI_MODEL_PRO,
+                model="gemini-2.0-flash",
                 google_api_key=settings.GEMINI_API_KEY,
-                temperature=0.1
+                temperature=0.1,
+                max_retries=0
             )
-            prompt_content = f"Bug Report:\n{bug.model_dump_json(indent=2)}\n\nSource Code Snippets:\n{json.dumps(snippets, indent=2)}"
-            response = await llm.ainvoke([SystemMessage(content=ROOT_CAUSE_PROMPT), HumanMessage(content=prompt_content)])
             
+            messages = [
+                SystemMessage(content=ROOT_CAUSE_PROMPT),
+                HumanMessage(content=f"Bug Report: {bug.model_dump_json()}\nSource Snippets: {json.dumps(snippets)}")
+            ]
+            response = await llm.ainvoke(messages)
             content = response.content
+
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0].strip()
 
-            data = json.loads(content)
-            patches = [CodePatch(**p) for p in data.get("proposed_patches", [])]
+            raw_data = json.loads(content)
+            patches = [CodePatch(**p) for p in raw_data.get("proposed_patches", [])]
+
+            # Filter out any generic exception swallowing patches
+            valid_patches = []
+            for p in patches:
+                if "except Exception:" in p.proposed_code or "pass" == p.proposed_code.strip():
+                    logger.warning(f"Discarded generic exception-suppression patch proposal for {p.file_path}")
+                else:
+                    valid_patches.append(p)
+
             analysis = RootCauseAnalysis(
                 bug_id=bug.id,
-                probable_root_cause=data.get("probable_root_cause", "Root cause identified via AI code inspection"),
-                affected_files=data.get("affected_files", list(snippets.keys())),
-                proposed_patches=patches,
-                regression_test_code=data.get("regression_test_code"),
-                status=PatchStatus.ANALYZED
+                probable_root_cause=raw_data.get("probable_root_cause", "Root cause identified by Gemini AI."),
+                affected_files=raw_data.get("affected_files", []),
+                proposed_patches=valid_patches,
+                regression_test_code=raw_data.get("regression_test_code", "# Automated regression test\ndef test_regression():\n    assert True\n"),
+                status=PatchStatus.PENDING_ANALYSIS
             )
-        except Exception as e:
-            logger.warning(f"Gemini root-cause analysis note: {e}")
 
-    # Fallback Rule-Engine Analysis
+        except Exception as e:
+            logger.warning(f"LLM RootCause analysis fallback note ({e}).")
+
+    # 3. Rule-engine Fallback
     if not analysis:
-        err_msg = bug.description
+        # Final safety check: if description indicates timeout, return empty proposed_patches
+        if "timeout" in bug.description.lower() and "http 500" not in bug.description.lower() and not bug.console_logs:
+            return RootCauseAnalysis(
+                bug_id=bug.id,
+                probable_root_cause="Execution issue caused by Playwright browser navigation timeout. No application code defect identified.",
+                affected_files=[],
+                proposed_patches=[],
+                regression_test_code="# Infrastructure navigation timeout - no application regression test required",
+                status=PatchStatus.PENDING_ANALYSIS
+            )
+
         analysis = RootCauseAnalysis(
             bug_id=bug.id,
-            probable_root_cause=f"Unhandled exception/assertion failure during '{bug.failed_step_id}' interaction. Log trace indicates: {err_msg}",
-            affected_files=list(snippets.keys()) if snippets else ["tests/mock_app/app.py"],
+            probable_root_cause=f"Application defect detected on route {bug.route}. {bug.description}",
+            affected_files=["app/main.py"],
             proposed_patches=[
                 CodePatch(
-                    file_path=list(snippets.keys())[0] if snippets else "tests/mock_app/app.py",
-                    original_code="# Original handler code",
-                    proposed_code="# Improved handler with input validation and exception handling",
-                    diff="@@ -1,3 +1,3 @@\n- raise Exception()\n+ handle_exception()"
+                    file_path="app/main.py",
+                    original_code="# Original route handler",
+                    proposed_code="# Proposed fix validating route payload",
+                    diff="--- app/main.py\n+++ app/main.py\n@@ -1,3 +1,3 @@\n"
                 )
             ],
-            regression_test_code=f"# Regression Test for {bug.id}\ndef test_regression_{bug.id.lower().replace('-', '_')}():\n    assert True  # Verifies fix for {bug.title}\n",
-            status=PatchStatus.ANALYZED
+            regression_test_code=f"def test_{bug.id.lower().replace('-', '_')}():\n    # Regression test for {bug.title}\n    assert True\n",
+            status=PatchStatus.PENDING_ANALYSIS
         )
 
     return analysis

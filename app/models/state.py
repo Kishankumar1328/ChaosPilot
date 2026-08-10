@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
 from app.models.sitemap import RouteNode
 from app.models.testplan import TestCase
-from app.models.bugreport import BugReport, StepResult
+from app.models.bugreport import BugReport, StepResult, ExecutionIssue
 
 class RunStatus(str, Enum):
     IDLE = "IDLE"
@@ -12,7 +12,12 @@ class RunStatus(str, Enum):
     EXECUTING = "EXECUTING"
     TRIAGING = "TRIAGING"
     COMPLETED = "COMPLETED"
+    COMPLETED_WITH_BUGS = "COMPLETED_WITH_BUGS"
+    COMPLETED_WITH_BLOCKED_TESTS = "COMPLETED_WITH_BLOCKED_TESTS"
+    TARGET_UNAVAILABLE = "TARGET_UNAVAILABLE"
+    EXECUTION_FAILED = "EXECUTION_FAILED"
     FAILED = "FAILED"
+    PARTIAL = "PARTIAL"
 
 class ChaosPilotState(BaseModel):
     run_id: str
@@ -21,7 +26,8 @@ class ChaosPilotState(BaseModel):
     max_pages: int = 25
     status: RunStatus = RunStatus.IDLE
     
-    # Discovery data
+    # Preflight & Discovery data
+    target_reachable: bool = True
     site_map: Dict[str, RouteNode] = Field(default_factory=dict)
     visited_urls: List[str] = Field(default_factory=list)
     
@@ -32,6 +38,7 @@ class ChaosPilotState(BaseModel):
     # Execution & triage tracking
     execution_results: Dict[str, List[StepResult]] = Field(default_factory=dict)
     discovered_bugs: List[BugReport] = Field(default_factory=list)
+    execution_issues: List[ExecutionIssue] = Field(default_factory=list)
     
     # Real-time event log stream for WebSockets
     logs: List[str] = Field(default_factory=list)
