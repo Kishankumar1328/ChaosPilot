@@ -7,7 +7,7 @@
 [![React](https://img.shields.io/badge/React-18.0%2B-61DAFB.svg?logo=react&logoColor=black)](https://react.dev/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-Stateful_Agents-FF6F00.svg)](https://langchain.com/)
 [![Playwright](https://img.shields.io/badge/Playwright-Chromium-45BA4B.svg?logo=playwright&logoColor=white)](https://playwright.dev/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 **ChaosPilot** is an autonomous AI QA engineer that crawls web applications, maps interactive user flows, builds risk-based test plans, executes boundary/chaos testing with Playwright, intercepts unhandled exceptions, diagnoses root causes using Gemini 2.5 Pro, and proposes verified code patches—**never modifying production without human approval.**
 
@@ -32,30 +32,26 @@
 ## 🏗️ System Architecture
 
 ```mermaid
-graph TD
-    User([👤 User / QA Engineer]) -->|Inputs Target URL| UI[ React Dashboard]
-    UI -->|POST /api/runs| API[FastAPI Backend Engine]
+graph TB
+    User(["👤 QA Engineer / User"]) -->|1. Input Target URL| UI[" React Dashboard (Port 3000)"]
+    UI -->|2. REST API & WebSockets| API["FastAPI Backend Engine (Port 8000)"]
     
-    subgraph LangGraph Stateful Agent Workflow
-        API --> ExplorerAgent[🔍 ExplorerAgent]
-        ExplorerAgent -->|Crawls & AXTree Mapping| TestPlannerAgent[📋 TestPlannerAgent]
-        TestPlannerAgent -->|Generates Risk-Based Suite| TestRunnerAgent[🚀 TestRunnerAgent]
+    subgraph Workflow["LangGraph Stateful Agent Loop"]
+        API --> Explorer["🔍 ExplorerAgent (AXTree Crawling)"]
+        Explorer --> Planner["📋 TestPlannerAgent (Risk-Based Plan)"]
+        Planner --> Runner["🚀 TestRunnerAgent (Playwright Engine)"]
         
-        TestRunnerAgent -->|Playwright Chromium Execution| AppUnderTest[🌐 Target Web Application]
-        AppUnderTest -->|Console Errors & HTTP 500s| TestRunnerAgent
+        Runner -->|Dynamic Obstacle| Reflector["🔄 ReflectNode (Self-Healing)"]
+        Reflector -->|Inject Corrective Step| Runner
         
-        TestRunnerAgent -->|Execution Anomaly| ReflectNode[🔄 ReflectNode: Self-Healing]
-        ReflectNode -->|Injects Corrective Steps| TestRunnerAgent
+        Runner --> Triage["⚖️ TriageAgent (Failure Capture)"]
+        Triage --> Reporter["📊 ReportGeneratorAgent"]
         
-        TestRunnerAgent --> TriageAgent[⚖️ TriageAgent]
-        TriageAgent -->|Constructs Bug Reports| ReportGeneratorAgent[📊 ReportGeneratorAgent]
-        
-        ReportGeneratorAgent -->|Inspects Stack Traces| CodeFixerAgent[🛠️ CodeFixerAgent: Gemini 2.5 Pro]
-        CodeFixerAgent -->|Generates Unified Diff| PatchEngine[🩹 PatchEngine]
+        Reporter --> CodeFixer["🛠️ CodeFixerAgent (Gemini 2.5 Pro)"]
+        CodeFixer --> PatchEngine["🩹 PatchEngine (Unified Diff)"]
     end
-
-    PatchEngine -->|Human-in-the-Loop Approval| DevRepo[💻 Source Code Repository]
-    API -->|Realtime WebSockets| UI
+    
+    PatchEngine -->|3. Human Approval| DevRepo["💻 Source Code Repository"]
 ```
 
 ---
@@ -191,7 +187,7 @@ ChaosPilot enforces strict safety policies to prevent unwanted side effects:
 
 ## 📜 License
 
-This project is licensed under the **MIT License**.
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [LICENSE](LICENSE) file for details.
 
 ---
 
