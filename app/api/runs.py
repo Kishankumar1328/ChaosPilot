@@ -16,7 +16,7 @@ from app.agents.graph import chaospilot_app
 router = APIRouter(prefix="/runs", tags=["runs"])
 logger = logging.getLogger(__name__)
 
-# Active run state cache for real-time WebSocket access
+# Active run state cache for real-time WebSocket and polling access
 active_runs: dict[str, ChaosPilotState] = {}
 
 class CreateRunRequest(BaseModel):
@@ -26,19 +26,20 @@ class CreateRunRequest(BaseModel):
 
 async def execute_run_task(state: ChaosPilotState):
     """
-    Background worker that invokes the LangGraph state machine.
+    Background worker that streams LangGraph state machine node updates in real-time.
     """
     active_runs[state.run_id] = state
     try:
-        # Run graph through LangGraph ainvoke
-        final_state_dict = await chaospilot_app.ainvoke(state)
-        if isinstance(final_state_dict, dict):
-            final_state = ChaosPilotState(**final_state_dict)
-        else:
-            final_state = final_state_dict
+        # Stream updates from each LangGraph node as it executes
+        async for output in chaospilot_app.astream(state):
+            for node_name, node_state in output.items():
+                if isinstance(node_state, ChaosPilotState):
+                    active_runs[state.run_id] = node_state
+                elif isinstance(node_state, dict):
+                    active_runs[state.run_id] = ChaosPilotState(**node_state)
+                logger.debug(f"Streamed node '{node_name}' update for run {state.run_id}")
 
-        active_runs[state.run_id] = final_state
-        logger.info(f"Run {state.run_id} completed with status: {final_state.status}")
+        logger.info(f"Run {state.run_id} completed with status: {active_runs[state.run_id].status}")
     except Exception as e:
         logger.error(f"Execution error in run task {state.run_id}: {e}")
         state.status = RunStatus.FAILED
@@ -60,6 +61,7 @@ async def start_run(req: CreateRunRequest, background_tasks: BackgroundTasks):
     )
     active_runs[run_id] = initial_state
 
+    # Launch background task
     background_tasks.add_task(execute_run_task, initial_state)
     return initial_state
 

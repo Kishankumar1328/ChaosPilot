@@ -20,7 +20,11 @@ class Navigator:
             return False, f"DomainLock blocked navigation to external URL: {url}", 403
 
         try:
-            response = await self.page.goto(url, wait_until="networkidle", timeout=15000)
+            try:
+                response = await self.page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                response = await self.page.goto(url, wait_until="load", timeout=15000)
+
             status_code = response.status if response else 200
             title = await self.page.title()
             return True, f"Navigated to {url} (Title: {title}, Status: {status_code})", status_code
@@ -58,29 +62,41 @@ class Navigator:
                 });
 
                 // Inspect interactive links & buttons outside forms
-                document.querySelectorAll('a[href], button, input[type="button"], input[type="submit"]').forEach((el) => {
-                    if (el.href) {
-                        interactiveSelectors.push(el.href);
-                    } else if (el.id) {
-                        interactiveSelectors.push(`#${el.id}`);
-                    }
+                document.querySelectorAll('a[href], button:not(form button)').forEach((el, idx) => {
+                    const href = el.getAttribute('href');
+                    const text = el.innerText.trim();
+                    const selector = el.id ? `#${el.id}` : (href ? `a[href="${href}"]` : `button:nth-of-type(${idx + 1})`);
+                    interactiveSelectors.push({
+                        selector: selector,
+                        href: href || null,
+                        text: text || null
+                    });
                 });
 
                 return { formsData, interactiveSelectors };
             }
         """)
 
-        forms = [FormElement(**f) for f in elements_data.get("formsData", [])]
-        interactive = elements_data.get("interactiveSelectors", [])
+        forms = [FormElement(**item) for item in elements_data.get("formsData", [])]
+        interactive = [item["selector"] for item in elements_data.get("interactiveSelectors", []) if item.get("selector")]
+        
+        # Extract discovered links for further crawling
+        discovered_links = []
+        for item in elements_data.get("interactiveSelectors", []):
+            href = item.get("href")
+            if href and self.domain_lock.is_allowed(href):
+                # Normalize relative links
+                if href.startswith("/"):
+                    from urllib.parse import urljoin
+                    href = urljoin(current_url, href)
+                discovered_links.append(href)
 
-        # Extract lightweight accessibility tree snapshot
-        axtree_snippet = ""
+        # Accessibility Tree (AXTree) Snapshot
+        axtree_snapshot = None
         try:
-            snapshot = await self.page.accessibility.snapshot()
-            if snapshot:
-                axtree_snippet = str(snapshot)[:2000]  # Limit size for LLM context optimization
+            axtree_snapshot = await self.page.accessibility.snapshot()
         except Exception as e:
-            logger.warning(f"Failed to capture accessibility snapshot: {e}")
+            logger.warning(f"Failed to capture AXTree snapshot for {current_url}: {e}")
 
         return RouteNode(
             url=current_url,
@@ -88,5 +104,6 @@ class Navigator:
             depth=depth,
             forms=forms,
             interactive_selectors=interactive,
-            axtree_snippet=axtree_snippet
+            discovered_links=list(set(discovered_links)),
+            axtree_snapshot=axtree_snapshot
         )

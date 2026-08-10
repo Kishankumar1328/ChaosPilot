@@ -44,13 +44,14 @@ async def reflect_node(state: ChaosPilotState) -> ChaosPilotState:
             if failed_step:
                 state.logs.append(f"🧠 [ReflectNode] Reflecting on failure in {tc.id} Step {failed_step.step_id}: {failed_result.error_message}")
                 
-                # Check LLM for intelligent self-healing
                 corrective_step = None
+                # Check LLM for intelligent self-healing (if quota permits)
                 if settings.GEMINI_API_KEY:
                     try:
                         llm = ChatGoogleGenerativeAI(
                             model=settings.GEMINI_MODEL_FAST,
-                            google_api_key=settings.GEMINI_API_KEY
+                            google_api_key=settings.GEMINI_API_KEY,
+                            max_retries=0
                         )
                         structured_llm = llm.with_structured_output(CorrectionPlan)
                         plan: CorrectionPlan = await structured_llm.ainvoke([
@@ -58,7 +59,7 @@ async def reflect_node(state: ChaosPilotState) -> ChaosPilotState:
                             HumanMessage(content=f"Failed Step: {failed_step.model_dump_json()}\nError: {failed_result.error_message}")
                         ])
 
-                        if plan.target_selector:
+                        if plan and plan.target_selector:
                             corrective_step = TestStep(
                                 step_id=f"HEAL_{failed_step.step_id}",
                                 action=ActionType.CLICK,
@@ -66,7 +67,7 @@ async def reflect_node(state: ChaosPilotState) -> ChaosPilotState:
                                 expected_outcome="Dismiss obstacle overlay"
                             )
                     except Exception as e:
-                        logger.warning(f"ReflectNode Gemini LLM reasoning note: {e}")
+                        logger.warning(f"ReflectNode LLM fallback note: {e}")
 
                 # Rule-engine self-healing fallback
                 if not corrective_step:

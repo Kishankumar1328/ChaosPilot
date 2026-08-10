@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class BrowserManager:
     """
     Manages the lifecycle of Playwright Chromium instances, browser contexts,
-    tracing, and network listeners.
+    tracing, and network listeners. Supports standard Desktop User-Agent for seamless external crawling.
     """
     def __init__(self, trace_dir: str = "./artifacts/traces"):
         self.trace_dir = trace_dir
@@ -24,17 +24,23 @@ class BrowserManager:
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=headless,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled"
+            ]
         )
         self.context = await self.browser.new_context(
             viewport={"width": 1280, "height": 720},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             ignore_https_errors=True
         )
         # Enable trace recording for failure playback
         await self.context.tracing.start(screenshots=True, snapshots=True, sources=True)
         self.page = await self.context.new_page()
         self.listener.attach_to_page(self.page)
-        logger.info("BrowserManager started Chromium browser instance.")
+        logger.info("BrowserManager started Chromium browser instance with Desktop User-Agent.")
 
     async def stop_tracing(self, trace_filename: str) -> str:
         trace_path = os.path.join(self.trace_dir, trace_filename)

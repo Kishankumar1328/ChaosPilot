@@ -18,28 +18,13 @@ For each route and form in the SiteMap, create:
 2. NEGATIVE tests (empty required fields, invalid formats)
 3. BOUNDARY tests (5000+ character strings, XSS payloads like `<script>alert(1)</script>`, special characters)
 4. CHAOS tests (rapid submit button actions, boundary state tests)
-
-Return JSON format matching:
-[
-  {
-    "id": "TC-01",
-    "title": "Submit Contact Form with Long Overflow String",
-    "description": "Boundary testing for form input overflow",
-    "category": "BOUNDARY",
-    "target_route": "https://example.com/contact",
-    "steps": [
-      {"step_id": "S1", "action": "NAVIGATE", "target_selector": null, "value": "https://example.com/contact", "expected_outcome": "Page loads successfully"},
-      {"step_id": "S2", "action": "FILL", "target_selector": "#name", "value": "AAAAAA...", "expected_outcome": "Input accepts or truncates overflow string"},
-      {"step_id": "S3", "action": "CLICK", "target_selector": "button[type='submit']", "value": null, "expected_outcome": "Form submits without 500 error"}
-    ]
-  }
-]
 """
 
 async def planner_node(state: ChaosPilotState) -> ChaosPilotState:
     """
     Planner Node (Test Planner Agent):
     Analyzes discovered SiteMap and generates risk-based test cases.
+    Falls back gracefully to heuristic rule-based planning on LLM quota limits.
     """
     state.status = RunStatus.PLANNING
     state.logs.append("📋 [TestPlannerAgent] Analyzing SiteMap to generate risk-based test plan...")
@@ -51,7 +36,7 @@ async def planner_node(state: ChaosPilotState) -> ChaosPilotState:
     if settings.GEMINI_API_KEY:
         try:
             llm = ChatGoogleGenerativeAI(
-                model=settings.GEMINI_MODEL_PRO,
+                model=settings.GEMINI_MODEL_FAST,
                 google_api_key=settings.GEMINI_API_KEY,
                 temperature=0.2
             )
@@ -74,80 +59,91 @@ async def planner_node(state: ChaosPilotState) -> ChaosPilotState:
                 content = content.split("```")[1].split("```")[0].strip()
 
             raw_cases = json.loads(content)
-            for tc in raw_cases:
-                test_plan.append(TestCase(**tc))
-                
-            state.logs.append(f"🤖 [TestPlannerAgent] Gemini generated {len(test_plan)} intelligent test cases.")
-        except Exception as e:
-            logger.warning(f"Gemini LLM planning failed or fallback required: {e}")
-            state.logs.append(f"⚠️ [TestPlannerAgent] LLM generation note: {e}. Falling back to Rule-Engine planner.")
+            for rc in raw_cases:
+                tc = TestCase(**rc)
+                test_plan.append(tc)
 
-    # Rule-Driven Fallback / Rule-Engine Test Planner
+            state.logs.append(f"✅ [TestPlannerAgent] Generated {len(test_plan)} LLM-driven risk-based test cases.")
+
+        except Exception as e:
+            logger.warning(f"LLM planner note ({e}). Switching to Heuristic Rule Engine.")
+            state.logs.append(f"ℹ️ [TestPlannerAgent] LLM unavailable/rate-limited. Executing Heuristic Rule Engine...")
+
+    # Heuristic Rule Engine Fallback (Guarantees test suite generation for any site)
     if not test_plan:
         tc_count = 1
-        for url, route in state.site_map.items():
-            # 1. Functional Navigation Test
+        for route_url, route_node in state.site_map.items():
+            # 1. Functional Route Navigation Test
             test_plan.append(TestCase(
-                id=f"TC-{tc_count:02d}",
-                title=f"Functional Navigation: {route.title or url}",
-                description=f"Verify route opens cleanly without JS errors",
+                id=f"TC-FUNC-{tc_count:02d}",
+                title=f"Functional Route Exploration for {route_node.title or route_url}",
+                description=f"Navigates to route {route_url} and verifies clean 200 HTTP response.",
                 category=TestCategory.FUNCTIONAL,
-                target_route=url,
+                target_route=route_url,
                 steps=[
                     TestStep(
                         step_id="S1",
                         action=ActionType.NAVIGATE,
-                        value=url,
-                        expected_outcome="Route loads cleanly with HTTP 200"
+                        value=route_url,
+                        expected_outcome="Page loads cleanly without unhandled exceptions"
                     )
                 ]
             ))
             tc_count += 1
 
-            # 2. Form Boundary & Negative Tests for each form element
-            for form in route.forms:
+            # 2. Form Boundary & Chaos Tests
+            for form in route_node.forms:
                 if form.element_type in ["text", "textarea", "email"]:
-                    # Boundary Overflow Test
                     test_plan.append(TestCase(
-                        id=f"TC-{tc_count:02d}",
-                        title=f"Boundary Test on {form.selector}",
-                        description="Test 5000 character overflow string handling",
+                        id=f"TC-BOUND-{tc_count:02d}",
+                        title=f"Boundary Input Overflow Test on {form.selector}",
+                        description=f"Fills {form.selector} with 1,000+ character string to test buffer overflow resilience.",
                         category=TestCategory.BOUNDARY,
-                        target_route=url,
+                        target_route=route_url,
                         steps=[
-                            TestStep(step_id="S1", action=ActionType.NAVIGATE, value=url, expected_outcome="Page loaded"),
+                            TestStep(
+                                step_id="S1",
+                                action=ActionType.NAVIGATE,
+                                value=route_url,
+                                expected_outcome="Route loaded"
+                            ),
                             TestStep(
                                 step_id="S2",
                                 action=ActionType.FILL,
                                 target_selector=form.selector,
-                                value=PayloadSanitizer.get_boundary_string("OVERFLOW_STRING"),
-                                expected_outcome="Input field handles long string safely"
+                                value="A" * 1000,
+                                expected_outcome="Input accepts or truncates long string"
                             )
                         ]
                     ))
                     tc_count += 1
 
-                    # Negative Special Character / XSS Test
-                    test_plan.append(TestCase(
-                        id=f"TC-{tc_count:02d}",
-                        title=f"Negative Injection Test on {form.selector}",
-                        description="Inject special character validation string",
-                        category=TestCategory.NEGATIVE,
-                        target_route=url,
-                        steps=[
-                            TestStep(step_id="S1", action=ActionType.NAVIGATE, value=url, expected_outcome="Page loaded"),
-                            TestStep(
-                                step_id="S2",
-                                action=ActionType.FILL,
-                                target_selector=form.selector,
-                                value=PayloadSanitizer.get_boundary_string("SPECIAL_CHARS"),
-                                expected_outcome="Input handles special chars without throwing JS unhandled error"
-                            )
-                        ]
-                    ))
-                    tc_count += 1
+            # 3. Interactive Selector Chaos Click Tests
+            for sel in route_node.interactive_selectors[:3]:
+                test_plan.append(TestCase(
+                    id=f"TC-CHAOS-{tc_count:02d}",
+                    title=f"Interactive Click Stress Test on {sel}",
+                    description=f"Simulates user click interaction on selector {sel}.",
+                    category=TestCategory.CHAOS,
+                    target_route=route_url,
+                    steps=[
+                        TestStep(
+                            step_id="S1",
+                            action=ActionType.NAVIGATE,
+                            value=route_url,
+                            expected_outcome="Route loaded"
+                        ),
+                        TestStep(
+                            step_id="S2",
+                            action=ActionType.CLICK,
+                            target_selector=sel,
+                            expected_outcome="Element handles click without throwing JS exception"
+                        )
+                    ]
+                ))
+                tc_count += 1
 
-        state.logs.append(f"✅ [TestPlannerAgent] Rule-Engine generated {len(test_plan)} structured test cases.")
+        state.logs.append(f"✅ [TestPlannerAgent] Generated {len(test_plan)} heuristic risk-based test cases.")
 
     state.test_plan = test_plan
     return state
